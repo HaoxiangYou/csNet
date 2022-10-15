@@ -202,9 +202,12 @@ class csNet(nn.Module):
             self.optimizers[i].load_state_dict(optimizers[i])
             self.lr_schedulers[i].load_state_dict(lr_schedulers[i])
 
-    def test_each_model_accuracy_on_certain_dataset(self, test_loader):
+    def test_each_model_accuracy_on_certain_dataset(self, test_loader, is_train_model=False):
         for i in range(self.num_of_models):
-            self.nets[i].eval()
+            if is_train_model:
+                self.nets[i].train()
+            else:
+                self.nets[i].eval()
             with torch.no_grad():
                 correct = 0
                 total = 0
@@ -219,6 +222,54 @@ class csNet(nn.Module):
                     correct += (predicted == labels).sum().item()
             print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
     
+    def test_each_model_if_average_different_dropout_is_good(self, test_loader, num_of_test_for_each_model=16):
+        for i in range(self.num_of_models):
+            with torch.no_grad():
+                correct = 0
+                total = 0
+                for j, (images, labels) in enumerate(test_loader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    
+                    self.nets[i].eval()
+                    outputs = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+                    
+                    self.nets[i].train()
+                    for _ in range(num_of_test_for_each_model):
+                        outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+
+                    outputs /= num_of_test_for_each_model
+
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+            print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
+
+    def test_if_average_different_models_is_good(self, test_loader, is_train_model=False):
+        for i in range(self.num_of_models):
+            if is_train_model:
+                self.nets[i].train()
+            else:
+                self.nets[i].eval()
+        
+        with torch.no_grad():
+            correct = 0
+            total = 0
+            num_of_samples = len(test_loader)
+            for j, (images, labels) in enumerate(test_loader):
+                images = images.to(self.device)
+                labels = labels.to(self.device)
+
+                outputs = self.softmax(self.nets[0](self.transforms[0](deepcopy(images))))
+                for i in range(1,self.num_of_models):
+                    outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+
+                outputs /= self.num_of_models
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
+
     def predict(self, images, num_of_test_for_each_model=16):
         
         images = images.to(self.device) 
@@ -235,12 +286,12 @@ class csNet(nn.Module):
                 predictions = []
                 self.nets[i].eval()
 
-                predictions.append(self.softmax(self.nets[i](self.transforms[i](images))))
+                predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
                 
                 self.nets[i].train()
 
                 for _ in range(1, num_of_test_for_each_model):
-                    predictions.append(self.softmax(self.nets[i](self.transforms[i](images))))
+                    predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
 
                 mini_batch_results = []
 

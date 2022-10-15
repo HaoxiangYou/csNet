@@ -27,7 +27,7 @@ def main():
                                        download=True, transform=transforms.ToTensor())
 
     testloader = torch.utils.data.DataLoader(testset, batch_size=16,
-                                         shuffle=True)
+                                         shuffle=False)
 
     classes = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
@@ -48,7 +48,11 @@ def main():
         model.save_optimizer(os.path.dirname(optimizer_path), os.path.basename(optimizer_path))
 
     # Test
-    model.test_each_model_accuracy_on_certain_dataset(testloader)
+    # model.test_each_model_accuracy_on_certain_dataset(testloader)
+
+    # model.test_each_model_if_average_different_dropout_is_good(testloader)
+
+    # model.test_if_average_different_models_is_good(testloader)
 
     correct = 0
     total = 0
