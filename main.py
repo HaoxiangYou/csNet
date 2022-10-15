@@ -48,7 +48,7 @@ def main():
         model.save_optimizer(os.path.dirname(optimizer_path), os.path.basename(optimizer_path))
 
     # Test
-    # model.test_each_model_accuracy_on_certain_dataset(testloader)
+    model.test_each_model_accuracy_on_certain_dataset(testloader)
 
     correct = 0
     total = 0
