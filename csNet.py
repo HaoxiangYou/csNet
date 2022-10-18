@@ -4,6 +4,7 @@ import numpy as np
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 from torchvision.transforms.autoaugment import _apply_op
 from torchvision.transforms.functional import InterpolationMode
 from copy import deepcopy
@@ -270,7 +271,7 @@ class csNet(nn.Module):
                 correct += (predicted == labels).sum().item()
                 print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
 
-    def predict(self, images, num_of_test_for_each_model=16):
+    def predict(self, images, labels, num_of_test_for_each_model=16):
         
         images = images.to(self.device) 
 
@@ -304,7 +305,7 @@ class csNet(nn.Module):
                     mean = torch.mean(predictions_for_one_image, dim=0)
                     cov = torch.cov(predictions_for_one_image.T)
 
-                    mini_batch_results.append({"mean":mean, "cov":cov})
+                    mini_batch_results.append({"mean":mean, "cov":cov, "all_results": predictions_for_one_image})
 
                 predictions_from_different_models.append(mini_batch_results)
 
@@ -315,7 +316,26 @@ class csNet(nn.Module):
         for i in range(len(fused_results)):
             best_predictions[i] = torch.argmax(fused_results[i]["mean"])
 
+        indice = torch.argwhere(best_predictions != labels)
+        np.set_printoptions(1)
+        for index in indice:
+            print("Predicted :{}, True:{}".format(best_predictions[index].item(), labels[index].item()))
+            print("fused mean:", fused_results[index]["mean"].to('cpu').numpy())
+            for i in range(self.num_of_models):
+                print("Model: [{}]/[{}], Reuslt:{}, Var:{:.4f}, Prob:{}".format(i+1, self.num_of_models, torch.argmax(predictions_from_different_models[i][index]["mean"]).item(), 
+                    torch.sum(torch.diag(predictions_from_different_models[i][index]["cov"])).item(), predictions_from_different_models[i][index]["mean"].to('cpu').numpy()
+                ))
+            # import pdb; pdb.set_trace()
+
         return best_predictions
+
+    def show_image(self, image):
+        image = image.to('cpu')
+        for i in range(self.num_of_models):
+            plt.figure()
+            plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ) )
+            plt.title("model [{}/{}]".format(i+1, self.num_of_models))
+        plt.show()
 
     def fuse_results_of_different_model(self, predictions_from_different_models):
         """
