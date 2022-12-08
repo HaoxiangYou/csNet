@@ -2,20 +2,27 @@ general:
   seed: 0
   device: "cuda"
 
-optimizor:
-  epochs: 50
-  lr: 0.01
-  momentum: 0.9
-  weight_decay: 1e-5
-  nesterov: True
-  lr_decay: 0.95
+training:
+  batch_size: 16
+  epochs: 20
+  optimizor:
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 1.e-5
+    nesterov: True
+    lr_decay: 0.95
+    # the learning rate will not decay after this times of epochs
+    end_epoch: 50
 
 dataset:
   shuffle: True
-  batch_size: 16
   apply_transformation: True
+  # the pecentatages of dataset being used
+  dataset_size: 1
 
 networks:
+  # number of individual networks
+  number_of_models: 16
   # size of hidden layer
   c1: 96
   c2: 192
@@ -24,16 +31,16 @@ networks:
   d2: 0.5
 
 paths:
-  #predetermined fixed transformation path
-  transformation_path: "../pretrained_model/fixed_transformation.pth"
+  #pre-trained_model
+  model_path: null
 
-  #pretrained_model
-  pretrained_path: "../pretrained_model/pre-trained_models.pth"
+  #pre-optimizor info
+  optimizer_path: "../pretrained_model/optimizer.pth"
 
-  #optimization model
-  optimizor_path: "../pretrained_model/optimizer.pth"
+  #pre-determined fixed transforms path
+  transforms_path: null
 
   #directory to save the model
-  save_direcotry: "../pretrained_model"
+  save_directory: "../pretrained_model"
 
 
