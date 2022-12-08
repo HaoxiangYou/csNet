@@ -4,6 +4,8 @@ data/
 
 *.pth
 
+experiment_*/
+
 # Distribution / packaging
 .Python
 build/
