@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from torchvision.transforms.autoaugment import _apply_op
 from torchvision.transforms.functional import InterpolationMode
 from copy import deepcopy
+from typing import Dict, List, Optional, Tuple
+from torch import Tensor
 
 # Defining the model
 
@@ -73,6 +75,85 @@ class basic_transform(nn.Module):
             ]
         policy = [policies[i] for i in  np.random.choice(len(policies), np.random.choice(len(policies)), replace=False)]
         
+        return policy
+
+    @staticmethod
+    def generate_CIFAR10_augmentation_policy():
+        """
+        This is random policy generation based on pytorch autoaugmentation for CIFAR10
+        """
+        def _augmentation_space(num_bins: int, image_size: Tuple[int, int]) -> Dict[str, Tuple[Tensor, bool]]:
+            return {
+            # op_name: (magnitudes, signed)
+            "ShearX": (torch.linspace(0.0, 0.3, num_bins), True),
+            "ShearY": (torch.linspace(0.0, 0.3, num_bins), True),
+            "TranslateX": (torch.linspace(0.0, 150.0 / 331.0 * image_size[1], num_bins), True),
+            "TranslateY": (torch.linspace(0.0, 150.0 / 331.0 * image_size[0], num_bins), True),
+            "Rotate": (torch.linspace(0.0, 30.0, num_bins), True),
+            "Brightness": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Color": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Contrast": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Sharpness": (torch.linspace(0.0, 0.9, num_bins), True),
+            "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False),
+            "Solarize": (torch.linspace(255.0, 0.0, num_bins), False),
+            "AutoContrast": (torch.tensor(0.0), False),
+            "Equalize": (torch.tensor(0.0), False),
+            "Invert": (torch.tensor(0.0), False),
+            }
+            
+        def get_params(transform_num: int) -> Tuple[int, Tensor, Tensor]:
+
+            policy_id = int(torch.randint(transform_num, (1,)).item())
+            probs = torch.rand((2,))
+            signs = torch.randint(2, (2,))
+
+            return policy_id, probs, signs
+
+        policies = [
+                (("Invert", 0.1, None), ("Contrast", 0.2, 6)),
+                (("Rotate", 0.7, 2), ("TranslateX", 0.3, 9)),
+                (("Sharpness", 0.8, 1), ("Sharpness", 0.9, 3)),
+                (("ShearY", 0.5, 8), ("TranslateY", 0.7, 9)),
+                (("AutoContrast", 0.5, None), ("Equalize", 0.9, None)),
+                (("ShearY", 0.2, 7), ("Posterize", 0.3, 7)),
+                (("Color", 0.4, 3), ("Brightness", 0.6, 7)),
+                (("Sharpness", 0.3, 9), ("Brightness", 0.7, 9)),
+                (("Equalize", 0.6, None), ("Equalize", 0.5, None)),
+                (("Contrast", 0.6, 7), ("Sharpness", 0.6, 5)),
+                (("Color", 0.7, 7), ("TranslateX", 0.5, 8)),
+                (("Equalize", 0.3, None), ("AutoContrast", 0.4, None)),
+                (("TranslateY", 0.4, 3), ("Sharpness", 0.2, 6)),
+                (("Brightness", 0.9, 6), ("Color", 0.2, 8)),
+                (("Solarize", 0.5, 2), ("Invert", 0.0, None)),
+                (("Equalize", 0.2, None), ("AutoContrast", 0.6, None)),
+                (("Equalize", 0.2, None), ("Equalize", 0.6, None)),
+                (("Color", 0.9, 9), ("Equalize", 0.6, None)),
+                (("AutoContrast", 0.8, None), ("Solarize", 0.2, 8)),
+                (("Brightness", 0.1, 3), ("Color", 0.7, 0)),
+                (("Solarize", 0.4, 5), ("AutoContrast", 0.9, None)),
+                (("TranslateY", 0.9, 9), ("TranslateY", 0.7, 9)),
+                (("AutoContrast", 0.9, None), ("Solarize", 0.8, 3)),
+                (("Equalize", 0.8, None), ("Invert", 0.1, None)),
+                (("TranslateY", 0.7, 9), ("AutoContrast", 0.9, None)),
+            ]
+
+        height = 32
+        width = 32
+
+        policy = [("Identity", True)]
+
+        transform_id, probs, signs = get_params(len(policies))
+
+        op_meta = _augmentation_space(10, (height, width))
+        for i, (op_name, p, magnitude_id) in enumerate(policies[transform_id]):
+            if probs[i] <= p:
+                magnitudes, signed = op_meta[op_name]
+                magnitude = float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                if signed and signs[i] == 0:
+                    magnitude *= -1.0
+                
+                policy.append((op_name, magnitude))
+                
         return policy
 
     def forward(self, imgs):
