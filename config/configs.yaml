@@ -1,0 +1,39 @@
+general:
+  seed: 0
+  device: "cuda"
+
+optimizor:
+  epochs: 50
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 1e-5
+  nesterov: True
+  lr_decay: 0.95
+
+dataset:
+  shuffle: True
+  batch_size: 16
+  apply_transformation: True
+
+networks:
+  # size of hidden layer
+  c1: 96
+  c2: 192
+  # dropout ratio
+  d1: 0.2
+  d2: 0.5
+
+paths:
+  #predetermined fixed transformation path
+  transformation_path: "../pretrained_model/fixed_transformation.pth"
+
+  #pretrained_model
+  pretrained_path: "../pretrained_model/pre-trained_models.pth"
+
+  #optimization model
+  optimizor_path: "../pretrained_model/optimizer.pth"
+
+  #directory to save the model
+  save_direcotry: "../pretrained_model"
+
+
