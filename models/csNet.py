@@ -4,10 +4,10 @@ import torch
 import numpy as np
 import torch.optim as optim
 import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torchvision.transforms.autoaugment import _apply_op
 from torchvision.transforms.functional import InterpolationMode
+from torchvision.transforms import ToPILImage, ToTensor
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 from torch import Tensor
@@ -53,13 +53,15 @@ class basic_cnn_t(nn.Module):
 
 class basic_transform(nn.Module):
 
-    def __init__(self, policy = None) -> None:
+    def __init__(self, policy = None, device=torch.device("cpu")) -> None:
         super().__init__()
 
         if policy is None:
             policy = basic_transform.generate_random_policy()        
         self.policy = policy
     
+        self.device = device
+
     @staticmethod
     def generate_random_policy():
         policies = [
@@ -140,7 +142,7 @@ class basic_transform(nn.Module):
         height = 32
         width = 32
 
-        policy = [("Identity", True)]
+        policy = []
 
         transform_id, probs, signs = get_params(len(policies))
 
@@ -159,19 +161,22 @@ class basic_transform(nn.Module):
     def forward(self, imgs):
         for i in range(imgs.shape[0]):
             for op_name, magnitude in self.policy:
-                imgs[i] = _apply_op(imgs[i], op_name, magnitude, InterpolationMode.NEAREST, None)
+                imgs[i] = ToTensor()(_apply_op(ToPILImage()(imgs[i]), op_name, magnitude, InterpolationMode.NEAREST, None)).to(self.device)
     
         return imgs
 
 class csNet(nn.Module):
     
-    def __init__(self, networks_config, paths=None, optimizor_config=None, device=torch.device("cpu")) -> None:
+    def __init__(self, networks_config, paths=None, optimizor_config=None, device=torch.device("cpu"), seed=0) -> None:
         super().__init__()
 
         self.classes = ('plane', 'car', 'bird', 'cat', 
             'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
         self.device = device
+
+        self.seed = seed 
+        self.set_seed(self.seed)
 
         self.criterion = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax(dim=-1)
@@ -202,6 +207,12 @@ class csNet(nn.Module):
             json.dump(self.transforms_policy, f, indent=4)
 
         print("Finish initilization, number of models: ", self.num_of_models)
+
+    def set_seed(self, seed):
+        torch.manual_seed(seed)
+        torch.cuda.seed()
+        np.random.seed(seed)
+        torch.backends.cudnn.deterministic=True
 
     def save_model(self, dir=None, suffix=None, save_optimizer=False):
 
@@ -299,7 +310,7 @@ class csNet(nn.Module):
                                             d1=networks_config["d1"], d2=networks_config["d2"]))
 
         for transforms_policy in self.transforms_policy:
-            self.transforms.append(basic_transform(policy=transforms_policy))
+            self.transforms.append(basic_transform(policy=transforms_policy, device=self.device))
 
     def load_optimizers(self, paths):
         try:
@@ -328,7 +339,7 @@ class csNet(nn.Module):
                     images = images.to(self.device)
                     labels = labels.to(self.device)
                     total += labels.size(0)
-                    outputs = self.nets[j](self.transforms[j](images))
+                    outputs = self.nets[j](self.transforms[j](deepcopy(images)))
                     loss = self.criterion(outputs, labels)
                     self.optimizers[j].zero_grad()
                     loss.backward()

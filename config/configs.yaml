@@ -4,7 +4,7 @@ general:
 
 training:
   batch_size: 16
-  epochs: 20
+  epochs: 50
   optimizor:
     lr: 0.01
     momentum: 0.9

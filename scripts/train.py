@@ -75,7 +75,7 @@ def main(config_path):
 
     # Create Model
     device = torch.device(device)  
-    model = csNet(paths=paths, networks_config=networks_config, optimizor_config=optimizor_config, device=device)
+    model = csNet(paths=paths, networks_config=networks_config, optimizor_config=optimizor_config, device=device, seed=seed)
 
     model.train(trainloader, testloader, epochs)
 
