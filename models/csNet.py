@@ -369,7 +369,8 @@ class csNet(nn.Module):
                     print("Epoch [{}/{}], Model [{}/{}], Test accuracy:{:4f}%".format(epoch+1, epochs, j+1, self.num_of_models, correct/total * 100))
 
                 self.save_model(dir="checkpoints", suffix="epoch{}".format(epoch+1), save_optimizer=True)
-                
+        
+        self.save_model(save_optimizer=True)
 
     def test_each_model_accuracy_on_certain_dataset(self, test_loader, is_train_model=False):
         for i in range(self.num_of_models):
