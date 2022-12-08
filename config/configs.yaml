@@ -26,8 +26,8 @@ networks:
   # number of individual networks
   number_of_models: 16
 
-  transform:
-    # fixed transform generate policy: 
+  transforms:
+    # fixed transforms generate policy: 
     # CIFR10:use same CIFR10 autoaugmentation as torch implementation
     # Random:use my random generation policy
     policy: CIFR10
