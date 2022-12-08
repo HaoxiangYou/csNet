@@ -1,0 +1,438 @@
+import os
+import json
+import torch
+import numpy as np
+import torch.optim as optim
+import torch.nn as nn
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from torchvision.transforms.autoaugment import _apply_op
+from torchvision.transforms.functional import InterpolationMode
+from copy import deepcopy
+
+# Defining the model
+
+class View(nn.Module):
+    def __init__(self,o):
+        super().__init__()
+        self.o = o
+
+    def forward(self,x):
+        return x.view(-1, self.o)
+    
+class basic_cnn_t(nn.Module):
+    def __init__(self, c1=96, c2=192, d1=0.2, d2=0.5):
+        super().__init__()
+
+        def convbn(ci,co,ksz,s=1,pz=0):
+            return nn.Sequential(
+                nn.Conv2d(ci,co,ksz,stride=s,padding=pz),
+                nn.ReLU(True),
+                nn.BatchNorm2d(co))
+
+        self.m = nn.Sequential(
+            nn.Dropout(d1),
+            convbn(3,c1,3,1,1),
+            convbn(c1,c1,3,1,1),
+            convbn(c1,c1,3,2,1),
+            nn.Dropout(d2),
+            convbn(c1,c2,3,1,1),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,c2,3,2,1),
+            nn.Dropout(d2),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,10,1,1),
+            nn.AvgPool2d(8),
+            View(10))
+
+    def forward(self, x):
+        return self.m(x)
+
+class basic_transform(nn.Module):
+
+    def __init__(self, policy = None) -> None:
+        super().__init__()
+
+        if policy is None:
+            policy = basic_transform.generate_random_policy()        
+        self.policy = policy
+    
+    @staticmethod
+    def generate_random_policy():
+        policies = [
+            ("ShearX", np.random.random()*0.6 - 0.3),
+            ("ShearY", np.random.random()*0.6 - 0.3),
+            ("Rotate", np.random.random()*60 - 30),
+            ("Brightness", np.random.random()*1.8 - 0.9),
+            ("Color", np.random.random()*1.8 - 0.9),
+            ("Contrast", np.random.random()*1.8 - 0.9),
+            ("Sharpness", np.random.random()*1.8 - 0.9),
+            ("Solarize", np.random.random()),
+            ("Invert", True),
+            ]
+        policy = [policies[i] for i in  np.random.choice(len(policies), np.random.choice(len(policies)), replace=False)]
+        
+        return policy
+
+    def forward(self, imgs):
+        for i in range(imgs.shape[0]):
+            for op_name, magnitude in self.policy:
+                imgs[i] = _apply_op(imgs[i], op_name, magnitude, InterpolationMode.NEAREST, None)
+    
+        return imgs
+
+class csNet(nn.Module):
+    
+    def __init__(self, networks_config, paths=None, optimizor_config=None, device=torch.device("cpu")) -> None:
+        super().__init__()
+
+        self.classes = ('plane', 'car', 'bird', 'cat', 
+            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+        self.device = device
+
+        self.criterion = nn.CrossEntropyLoss()
+        self.softmax = nn.Softmax(dim=-1)
+        self.nets = []
+        self.lr_schedulers = []
+        self.optimizers = []
+        self.transforms_policy = []
+        self.transforms = []
+
+        if paths is not None:
+            self.save_dir = paths["save_directory"]
+
+        self.initialize_models(networks_config=networks_config, paths=paths)
+
+        for i in range(self.num_of_models):
+            self.optimizers.append(optim.SGD(self.nets[i].parameters(), 
+                optimizor_config["lr"], momentum=optimizor_config["momentum"], 
+                weight_decay=optimizor_config["weight_decay"], nesterov=optimizor_config["nesterov"]))
+            self.lr_schedulers.append(optim.lr_scheduler.ExponentialLR(optimizer=self.optimizers[i], 
+                gamma=optimizor_config["lr_decay"]))
+            self.nets[i].to(self.device)
+
+        self.load_optimizers(paths)
+
+        self.lr_decay_end_epoch = optimizor_config["end_epoch"]
+
+        with open(os.path.join(self.save_dir, "tranforms.json"), "w") as f:
+            json.dump(self.transforms_policy, f, indent=4)
+
+        print("Finish initilization, number of models: ", self.num_of_models)
+
+    def save_model(self, dir=None, suffix=None, save_optimizer=False):
+
+        dir = os.path.join(self.save_dir, dir)
+
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        
+        if suffix:
+            model_path = os.path.join(dir, "model_{}.pth".format(suffix))
+        else:
+            model_path = os.path.join(dir, "model.pth")
+
+        nets = []
+        transforms = []
+
+        for net in self.nets:
+            nets.append(net.state_dict())
+
+        for transform in self.transforms:
+            transforms.append(transform.policy)
+
+        model = {"nets":nets,
+                "transforms":transforms}
+
+        import pdb; pdb.set_trace()
+
+        torch.save(model, model_path)
+
+        print("Saving models to:" + model_path)
+
+        if save_optimizer:
+            
+            if suffix:
+                optimizer_path = os.path.join(dir, "optimizer_{}.pth".format(suffix))
+            else:
+                optimizer_path = os.path.join(dir, "optimizer.pth")
+            
+            optimizers = []
+            lr_schedulers = []
+
+            for optimizer in self.optimizers:
+                optimizers.append(optimizer.state_dict())
+
+            for lr_scheduler in self.lr_schedulers:
+                lr_schedulers.append(lr_scheduler.state_dict())
+
+            optimizers_info = {"optimizers": optimizers, 
+                            "lr_schedulers": lr_schedulers}
+        
+            torch.save(optimizers_info, optimizer_path)
+
+            print("Saving optimizers to:" + optimizer_path)
+
+    def initialize_models(self, networks_config, paths=None):
+        try:
+            models = torch.load(paths["model_path"])
+            nets = models["nets"]
+            transforms = models["transforms"]            
+            self.num_of_models = len(nets)
+
+            for i in range(self.num_of_models):
+                self.nets.append(basic_cnn_t(c1=networks_config["c1"], c2=networks_config["c2"],
+                                            d1=networks_config["d1"], d2=networks_config["d2"]))
+                self.nets[i].load_state_dict(nets[i])
+
+                self.transforms_policy.append(transforms[i])
+
+            print("Initialize models and transforms from:" + paths["model_path"])
+        except:
+            try:
+                with open(paths["transforms_path"], "r") as f:
+                    self.transforms_policy = json.load(f)
+                self.num_of_models = len(self.transforms)
+
+                for i in range(self.num_of_models):
+                    self.nets.append(basic_cnn_t(c1=networks_config["c1"], c2=networks_config["c2"],
+                                            d1=networks_config["d1"], d2=networks_config["d2"]))
+                print("Initialize transforms from:" + paths["transforms_path"])
+            except:
+                self.num_of_models = networks_config["number_of_models"]
+                self.transforms_policy.append([("Identity", True)])
+                for _ in range(1, self.num_of_models):
+                    self.transforms_policy.append(basic_transform().generate_random_policy())
+
+                for i in range(self.num_of_models):
+                    self.nets.append(basic_cnn_t(c1=networks_config["c1"], c2=networks_config["c2"],
+                                            d1=networks_config["d1"], d2=networks_config["d2"]))
+
+        for transforms_policy in self.transforms_policy:
+            self.transforms.append(basic_transform(policy=transforms_policy))
+
+    def load_optimizers(self, paths):
+        try:
+            optimizers_info = torch.load(paths["optimizer_path"])
+            optimizers = optimizers_info["optimizers"]
+            lr_schedulers = optimizers_info["optimizers"]
+            for i in range(self.num_of_models):
+                self.optimizers[i].load_state_dict(optimizers[i])
+                self.lr_schedulers[i].load_state_dict(lr_schedulers[i])
+            print("Loading optimizer from:" + paths["optimizer_path"])
+        except:
+            pass
+
+    def train(self, train_loader, test_loader, epochs):
+
+        total_step = len(train_loader)
+
+        for epoch in range(epochs):
+
+            for j in range(self.num_of_models):
+                self.nets[j].train()
+
+                total = 0
+                correct = 0
+                for i, (images, labels) in enumerate(train_loader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    total += labels.size(0)
+                    outputs = self.nets[j](self.transforms[j](images))
+                    loss = self.criterion(outputs, labels)
+                    self.optimizers[j].zero_grad()
+                    loss.backward()
+                    _, predicted = torch.max(outputs.data, 1)
+                    correct += (predicted == labels).sum().item()
+                    self.optimizers[j].step()
+                    if (i+1) % (len(train_loader)//3) == 0:
+                        print('Epoch [{}/{}], Step [{}/{}], Model [{}/{}], Loss: {:.4f}, Accuracy: {:.4f}%'.format(epoch+1, epochs, i+1, total_step, j+1, self.num_of_models, loss.item(), correct/total * 100))
+
+            if epoch +1 <= self.lr_decay_end_epoch:
+                for j in range(self.num_of_models):
+                    self.lr_schedulers[j].step()
+
+            if (epoch + 1) % 10 == 0:
+                for j in range(self.num_of_models):
+                    self.nets[j].eval()
+                    total = 0
+                    correct = 0
+                    with torch.no_grad():
+                        for i, (images, labels) in enumerate(test_loader):
+                            images = images.to(self.device)
+                            labels = labels.to(self.device)
+                            total += labels.size(0)
+                            outputs = self.nets[j](self.transforms[j](images))
+                            _, predicted = torch.max(outputs.data, 1)
+                            correct += (predicted == labels).sum().item()
+                    print("Epoch [{}/{}], Model [{}/{}], Test accuracy:{:4f}%".format(epoch+1, epochs, j+1, self.num_of_models, correct/total * 100))
+
+                self.save_model(dir="checkpoints", suffix="epoch{}".format(epoch+1), save_optimizer=True)
+                
+
+    def test_each_model_accuracy_on_certain_dataset(self, test_loader, is_train_model=False):
+        for i in range(self.num_of_models):
+            if is_train_model:
+                self.nets[i].train()
+            else:
+                self.nets[i].eval()
+            with torch.no_grad():
+                correct = 0
+                total = 0
+                val_loss = 0
+                for j, (images, labels) in enumerate(test_loader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    outputs = self.nets[i](self.transforms[i](images))
+                    val_loss += self.criterion(outputs, labels).item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+            print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
+    
+    def test_each_model_if_average_different_dropout_is_good(self, test_loader, num_of_test_for_each_model=16):
+        for i in range(self.num_of_models):
+            with torch.no_grad():
+                correct = 0
+                total = 0
+                for j, (images, labels) in enumerate(test_loader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+                    
+                    self.nets[i].eval()
+                    outputs = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+                    
+                    self.nets[i].train()
+                    for _ in range(num_of_test_for_each_model):
+                        outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+
+                    outputs /= num_of_test_for_each_model
+
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+            print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
+
+    def test_if_average_different_models_is_good(self, test_loader, is_train_model=False):
+        for i in range(self.num_of_models):
+            if is_train_model:
+                self.nets[i].train()
+            else:
+                self.nets[i].eval()
+        
+        with torch.no_grad():
+            correct = 0
+            total = 0
+            num_of_samples = len(test_loader)
+            for j, (images, labels) in enumerate(test_loader):
+                images = images.to(self.device)
+                labels = labels.to(self.device)
+
+                outputs = self.softmax(self.nets[0](self.transforms[0](deepcopy(images))))
+                for i in range(1,self.num_of_models):
+                    outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+
+                outputs /= self.num_of_models
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
+
+    def predict(self, images, labels, num_of_test_for_each_model=16):
+        
+        images = images.to(self.device) 
+
+        mini_batch_size = images.shape[0]
+
+        num_of_class = 10
+
+        with torch.no_grad():
+
+            predictions_from_different_models = []   
+
+            for i in range(self.num_of_models):
+                predictions = []
+                self.nets[i].eval()
+
+                predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
+                
+                self.nets[i].train()
+
+                for _ in range(1, num_of_test_for_each_model):
+                    predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
+
+                mini_batch_results = []
+
+                for j in range(mini_batch_size):
+                    predictions_for_one_image = torch.zeros((num_of_test_for_each_model, num_of_class), device=self.device)
+                    
+                    for k in range(num_of_test_for_each_model):
+                        predictions_for_one_image[k] = predictions[k][j]
+
+                    mean = torch.mean(predictions_for_one_image, dim=0)
+                    cov = torch.cov(predictions_for_one_image.T)
+
+                    mini_batch_results.append({"mean":mean, "cov":cov, "all_results": predictions_for_one_image})
+
+                predictions_from_different_models.append(mini_batch_results)
+
+        fused_results = self.fuse_results_of_different_model(predictions_from_different_models)
+
+        best_predictions = torch.zeros(mini_batch_size, device=self.device, dtype=int)
+
+        for i in range(len(fused_results)):
+            best_predictions[i] = torch.argmax(fused_results[i]["mean"])
+
+        # indice = torch.argwhere(best_predictions != labels)
+        # np.set_printoptions(1)
+        # for index in indice:
+        #     print("Predicted :{}, True:{}".format(best_predictions[index].item(), labels[index].item()))
+        #     print("fused mean:", fused_results[index]["mean"].to('cpu').numpy())
+        #     print("fused cov:", np.diag(fused_results[index]["cov"].to('cpu').numpy()))
+        #     for i in range(self.num_of_models):
+        #         print("Model: [{}]/[{}], Reuslt:{}, Var:{:.4f}, Prob:{}".format(i+1, self.num_of_models, torch.argmax(predictions_from_different_models[i][index]["mean"]).item(), 
+        #             torch.sum(torch.diag(predictions_from_different_models[i][index]["cov"])).item(), predictions_from_different_models[i][index]["mean"].to('cpu').numpy()
+        #         ))
+            # import pdb; pdb.set_trace()
+
+        return best_predictions
+
+    def show_image(self, image):
+        image = image.to('cpu')
+        for i in range(self.num_of_models):
+            plt.figure()
+            plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ) )
+            plt.title("model [{}/{}]".format(i+1, self.num_of_models))
+        plt.show()
+
+    def fuse_results_of_different_model(self, predictions_from_different_models):
+        """
+        params:
+            predictions_from_different_models: 
+                List of predictions from different models.
+                each elements in the list is also a list of mini_batch_results.
+        """
+        mini_batch_size = len(predictions_from_different_models[0])
+
+        fused_results = []
+
+        for j in range(mini_batch_size):
+            mean = predictions_from_different_models[0][j]["mean"]
+            cov = predictions_from_different_models[0][j]["cov"]
+            for i in range(1, self.num_of_models):
+                mean, cov = self.kalman_updates(mean, predictions_from_different_models[i][j]["mean"], cov, predictions_from_different_models[i][j]["cov"])
+            fused_results.append({"mean":mean, "cov":cov})
+        
+        return fused_results
+
+    def kalman_updates(self, mean_1, mean_2, cov_1, cov_2):
+        K_1 = cov_2 @ torch.linalg.pinv(cov_1 + cov_2)
+        K_2 = torch.eye(K_1.shape[0], device=self.device) - K_1
+        mean = K_1 @ mean_1 +  K_2 @ mean_2
+        cov = K_1 @ cov_1 @ K_1.T + K_2 @ cov_2 @ K_2.T
+        return mean, cov  
+                
+    def ransac(self):
+        pass
