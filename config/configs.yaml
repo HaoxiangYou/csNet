@@ -11,21 +11,33 @@ training:
     weight_decay: 1.e-5
     nesterov: True
     lr_decay: 0.95
+    
     # the learning rate will not decay after this times of epochs
     end_epoch: 50
 
 dataset:
   shuffle: True
   apply_transformation: True
+
   # the pecentatages of dataset being used
   dataset_size: 1
 
 networks:
   # number of individual networks
   number_of_models: 16
+
+  transform:
+    # fixed transform generate policy: 
+    # CIFR10:use same CIFR10 autoaugmentation as torch implementation
+    # Random:use my random generation policy
+    policy: CIFR10
+
+    include_identity: True
+
   # size of hidden layer
   c1: 96
   c2: 192
+
   # dropout ratio
   d1: 0.2
   d2: 0.5

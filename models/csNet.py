@@ -153,7 +153,7 @@ class basic_transform(nn.Module):
                     magnitude *= -1.0
                 
                 policy.append((op_name, magnitude))
-                
+
         return policy
 
     def forward(self, imgs):
@@ -281,9 +281,18 @@ class csNet(nn.Module):
                 print("Initialize transforms from:" + paths["transforms_path"])
             except:
                 self.num_of_models = networks_config["number_of_models"]
-                self.transforms_policy.append([("Identity", True)])
-                for _ in range(1, self.num_of_models):
-                    self.transforms_policy.append(basic_transform().generate_random_policy())
+
+                if networks_config["transforms"]["include_identity"]:
+                    self.transforms_policy.append([("Identity", True)])
+                
+                for _ in range(int(networks_config["transforms"]["include_identity"]), self.num_of_models):
+                    if networks_config["transforms"]["policy"] == "CIFR10":
+                        policy = basic_transform().generate_CIFAR10_augmentation_policy()
+                        while len(policy) < 2:
+                            policy = basic_transform().generate_CIFAR10_augmentation_policy()
+                    else:
+                        policy = basic_transform().generate_random_policy()
+                    self.transforms_policy.append(policy)
 
                 for i in range(self.num_of_models):
                     self.nets.append(basic_cnn_t(c1=networks_config["c1"], c2=networks_config["c2"],
