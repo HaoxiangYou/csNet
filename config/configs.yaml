@@ -50,7 +50,7 @@ paths:
   optimizer_path: null
 
   #pre-determined fixed transforms path
-  transforms_path: null
+  transforms_path: "../pretrained_model/tranforms.json"
 
   #directory to save the model
   save_directory: "../pretrained_model"

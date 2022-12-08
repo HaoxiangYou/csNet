@@ -284,7 +284,8 @@ class csNet(nn.Module):
             try:
                 with open(paths["transforms_path"], "r") as f:
                     self.transforms_policy = json.load(f)
-                self.num_of_models = len(self.transforms)
+
+                self.num_of_models = len(self.transforms_policy)
 
                 for i in range(self.num_of_models):
                     self.nets.append(basic_cnn_t(c1=networks_config["c1"], c2=networks_config["c2"],
