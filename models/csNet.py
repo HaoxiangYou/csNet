@@ -146,8 +146,6 @@ class csNet(nn.Module):
         model = {"nets":nets,
                 "transforms":transforms}
 
-        import pdb; pdb.set_trace()
-
         torch.save(model, model_path)
 
         print("Saving models to:" + model_path)
