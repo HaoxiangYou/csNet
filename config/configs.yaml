@@ -35,7 +35,7 @@ paths:
   model_path: null
 
   #pre-optimizor info
-  optimizer_path: "../pretrained_model/optimizer.pth"
+  optimizer_path: null
 
   #pre-determined fixed transforms path
   transforms_path: null
