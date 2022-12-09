@@ -11,6 +11,7 @@ from torchvision.transforms import ToPILImage, ToTensor
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 from torch import Tensor
+import wandb
 
 # Defining the model
 
@@ -167,7 +168,7 @@ class basic_transform(nn.Module):
 
 class csNet(nn.Module):
     
-    def __init__(self, networks_config, paths=None, optimizor_config=None, device=torch.device("cpu"), seed=0) -> None:
+    def __init__(self, networks_config, paths=None, optimizor_config=None, wandb_config=None, device=torch.device("cpu"), seed=0) -> None:
         super().__init__()
 
         self.classes = ('plane', 'car', 'bird', 'cat', 
@@ -185,6 +186,13 @@ class csNet(nn.Module):
         self.optimizers = []
         self.transforms_policy = []
         self.transforms = []
+
+        if wandb_config is not None and wandb_config["enable"]:
+            wandb.init(
+                project=wandb_config["project_name"],
+                entity=wandb_config["entity"],
+                name=os.path.basename(paths["save_directory"])
+            )
 
         if paths is not None:
             self.save_dir = paths["save_directory"]
@@ -349,6 +357,7 @@ class csNet(nn.Module):
                     self.optimizers[j].step()
                     if (i+1) % (len(train_loader)//3) == 0:
                         print('Epoch [{}/{}], Step [{}/{}], Model [{}/{}], Loss: {:.4f}, Accuracy: {:.4f}%'.format(epoch+1, epochs, i+1, total_step, j+1, self.num_of_models, loss.item(), correct/total * 100))
+                        wandb.log({"model_"+str(j+1): {"training":{"epoch": epoch+1, "step":i+1 + epoch * len(train_loader), "loss":loss.item(),"accuracy": correct/total * 100}}})
 
             if epoch +1 <= self.lr_decay_end_epoch:
                 for j in range(self.num_of_models):
@@ -368,6 +377,7 @@ class csNet(nn.Module):
                             _, predicted = torch.max(outputs.data, 1)
                             correct += (predicted == labels).sum().item()
                     print("Epoch [{}/{}], Model [{}/{}], Test accuracy:{:4f}%".format(epoch+1, epochs, j+1, self.num_of_models, correct/total * 100))
+                    wandb.log({"model_"+str(j+1): {"testing":{"epoch": epoch+1, "accuracy": correct/total * 100}}})
 
                 self.save_model(dir="checkpoints", suffix="epoch{}".format(epoch+1), save_optimizer=True)
         

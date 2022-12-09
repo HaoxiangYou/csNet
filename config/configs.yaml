@@ -2,6 +2,11 @@ general:
   seed: 0
   device: "cuda"
 
+wandb:
+  enable: True
+  project_name: "csNet"
+  entity: "haoxiang_you"
+
 training:
   batch_size: 16
   epochs: 50

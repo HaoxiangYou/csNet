@@ -24,6 +24,7 @@ def main(config_path):
 
     networks_config = config["networks"]
     optimizor_config = config["training"]["optimizor"]
+    wandb_config = config["wandb"]
 
     paths = config["paths"]
     abs_path = os.path.dirname(config_path)
@@ -75,7 +76,8 @@ def main(config_path):
 
     # Create Model
     device = torch.device(device)  
-    model = csNet(paths=paths, networks_config=networks_config, optimizor_config=optimizor_config, device=device, seed=seed)
+    wandb_config = config["wandb"]
+    model = csNet(paths=paths, networks_config=networks_config, optimizor_config=optimizor_config, device=device, seed=seed, wandb_config=wandb_config)
 
     model.train(trainloader, testloader, epochs)
 

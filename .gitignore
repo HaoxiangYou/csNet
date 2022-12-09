@@ -6,6 +6,8 @@ data/
 
 experiment_*/
 
+wandb/
+
 # Distribution / packaging
 .Python
 build/
