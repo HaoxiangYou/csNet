@@ -5,7 +5,7 @@ general:
 wandb:
   enable: True
   project_name: "csNet"
-  entity: "haoxiang_you"
+  entity: "ese5460"
 
 training:
   batch_size: 16
