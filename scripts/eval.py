@@ -13,7 +13,7 @@ def main(config_path):
 
     # Parse arguments from command line
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, default="pretrained_model/Hien_pretrained_models/experiment_11-Dec-2022_00_12_05/checkpoints/model_epoch50.pth")
+    parser.add_argument("--model_path", type=str)
     args = parser.parse_args()
 
     # Get config file
@@ -30,7 +30,15 @@ def main(config_path):
     ensemble_method = config["testing"]["ensemble"]["method"]
 
     networks_config = config["networks"]
+
     wandb_config = config["wandb"]
+    if wandb_config["name"] is None:
+        wandb_config["name"] = exp_name
+    wandb_config["config"] = config
+
+    # Set the seed
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic=True
 
     # Create dataset
     if apply_transformation:
@@ -53,29 +61,22 @@ def main(config_path):
     device = torch.device(device)
 
     paths = config["paths"]
+    abs_path = os.path.dirname(config_path)
+    for path_name in paths:
+        try:
+            paths[path_name] = os.path.join(abs_path, paths[path_name])
+        except:
+            pass
+    paths["save_directory"] = os.path.join(paths["save_directory"], exp_name)
 
-    exp_name = "experiment_"+datetime.datetime.now().strftime("%d-%b-%Y_%H:%M:%S")
-    paths["save_directory"] = os.path.join(os.path.dirname(config_path), os.path.join(paths["save_directory"], exp_name))
-    paths["model_path"] = args.model_path
+    if args.model_path:
+        paths["model_path"] = args.model_path
 
     model = csNet(networks_config, paths=paths, wandb_config=wandb_config, seed=seed, device=device, exp_name=exp_name)
 
-    model.test_each_model_accuracy_on_certain_dataset(testloader)
+    model.eval_each_model_accuracy(testloader)
 
-    # model.test_each_model_if_average_different_dropout_is_good(testloader)
-
-    model.test_if_average_different_models_is_good(testloader)
-
-    # correct = 0
-    # total = 0
-    # total_samples = len(testloader)
-    # for i, (images, labels) in enumerate(testloader):
-    #     images = images.to(device)
-    #     labels = labels.to(device)
-    #     total += labels.size(0)
-    #     predicted = model.predict(images, labels)
-    #     correct += (predicted == labels).sum().item()
-    #     print("Samples:[{}/{}], Accuracy:{:.4f}%".format(i+1, total_samples, correct/total * 100))
+    model.eval(testloader, method=ensemble_method)
 
 if __name__ == "__main__":
     path_to_config_file = os.path.normpath(

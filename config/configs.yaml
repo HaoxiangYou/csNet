@@ -35,7 +35,7 @@ testing:
     dataset_size: 1
     batch_size: 16
   ensemble:
-    method: "simple average"
+    method: "average"
 
 networks:
   # number of individual networks
@@ -59,7 +59,7 @@ networks:
 
 paths:
   #pre-trained_model
-  model_path: null
+  model_path: "../pretrained_model/Hien_pretrained_models/experiment_09-Dec-2022_16_23_49/checkpoints/model_epoch50.pth"
 
   #pre-optimizor info
   optimizer_path: null

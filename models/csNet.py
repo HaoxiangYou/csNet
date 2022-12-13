@@ -312,7 +312,7 @@ class csNet(nn.Module):
 
         for net in self.nets:            
             net.to(self.device)
-            
+
     def initialize_optimizers(self, optimizer_config, paths=None):
 
         for i in range(self.num_of_models):
@@ -391,12 +391,9 @@ class csNet(nn.Module):
         
         self.save_model(save_optimizer=True)
 
-    def test_each_model_accuracy_on_certain_dataset(self, test_loader, is_train_model=False):
+    def eval_each_model_accuracy(self, test_loader):
         for i in range(self.num_of_models):
-            if is_train_model:
-                self.nets[i].train()
-            else:
-                self.nets[i].eval()
+            self.nets[i].eval()
             with torch.no_grad():
                 correct = 0
                 total = 0
@@ -409,37 +406,14 @@ class csNet(nn.Module):
                     _, predicted = torch.max(outputs.data, 1)
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()
-            print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
-    
-    def test_each_model_if_average_different_dropout_is_good(self, test_loader, num_of_test_for_each_model=16):
-        for i in range(self.num_of_models):
-            with torch.no_grad():
-                correct = 0
-                total = 0
-                for j, (images, labels) in enumerate(test_loader):
-                    images = images.to(self.device)
-                    labels = labels.to(self.device)
-                    
-                    self.nets[i].eval()
-                    outputs = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
-                    
-                    self.nets[i].train()
-                    for _ in range(num_of_test_for_each_model):
-                        outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
 
-                    outputs /= num_of_test_for_each_model
-
-                    _, predicted = torch.max(outputs.data, 1)
-                    total += labels.size(0)
-                    correct += (predicted == labels).sum().item()
+                    if self.enable_wandb:
+                        wandb.log({"Testing":{"num of samples":total, "single_model_accuracy":{i:{"accuracy": correct/total}}}})
             print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
 
-    def test_if_average_different_models_is_good(self, test_loader, is_train_model=False):
-        for i in range(self.num_of_models):
-            if is_train_model:
-                self.nets[i].train()
-            else:
-                self.nets[i].eval()
+    def eval(self, test_loader, method="average", num_of_models=None):
+        if num_of_models is None:
+            num_of_models = self.num_of_models
         
         with torch.no_grad():
             correct = 0
@@ -449,17 +423,32 @@ class csNet(nn.Module):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
 
-                outputs = self.softmax(self.nets[0](self.transforms[0](deepcopy(images))))
-                for i in range(1,self.num_of_models):
-                    outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+                if method == "average":
+                    predicted = self.predict_by_simple_average(images, num_of_models)
 
-                outputs /= self.num_of_models
-                _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
-                print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
 
-    def predict(self, images, labels, num_of_test_for_each_model=16):
+                print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
+                
+                if self.enable_wandb:
+                    wandb.log({"Testing":{"num of samples":total, method:{"accuracy": correct/total}}})
+
+    def predict_by_simple_average(self, images, num_of_models):
+        for i in range(num_of_models):
+            self.nets[i].eval()
+        
+        outputs = self.softmax(self.nets[0](self.transforms[0](deepcopy(images))))
+        
+        for i in range(1, num_of_models):
+            outputs += self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+        
+        outputs /= num_of_models
+        _, predicted = torch.max(outputs.data, 1)
+        
+        return predicted
+
+    def predict(self, images, num_of_test_for_each_model=16):
         
         images = images.to(self.device) 
 
@@ -503,18 +492,6 @@ class csNet(nn.Module):
 
         for i in range(len(fused_results)):
             best_predictions[i] = torch.argmax(fused_results[i]["mean"])
-
-        # indice = torch.argwhere(best_predictions != labels)
-        # np.set_printoptions(1)
-        # for index in indice:
-        #     print("Predicted :{}, True:{}".format(best_predictions[index].item(), labels[index].item()))
-        #     print("fused mean:", fused_results[index]["mean"].to('cpu').numpy())
-        #     print("fused cov:", np.diag(fused_results[index]["cov"].to('cpu').numpy()))
-        #     for i in range(self.num_of_models):
-        #         print("Model: [{}]/[{}], Reuslt:{}, Var:{:.4f}, Prob:{}".format(i+1, self.num_of_models, torch.argmax(predictions_from_different_models[i][index]["mean"]).item(), 
-        #             torch.sum(torch.diag(predictions_from_different_models[i][index]["cov"])).item(), predictions_from_different_models[i][index]["mean"].to('cpu').numpy()
-        #         ))
-            # import pdb; pdb.set_trace()
 
         return best_predictions
 
