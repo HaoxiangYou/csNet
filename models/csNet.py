@@ -425,6 +425,8 @@ class csNet(nn.Module):
 
                 if method == "average":
                     predicted = self.predict_by_simple_average(images, num_of_models)
+                elif method == "Kalman filter":
+                    predicted = self.predict_by_kalman_filter(images, num_of_models)
 
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
@@ -448,52 +450,55 @@ class csNet(nn.Module):
         
         return predicted
 
-    def predict(self, images, num_of_test_for_each_model=16):
+    def predict_by_kalman_filter(self, images, num_of_models, num_of_different_result=16):
         
-        images = images.to(self.device) 
+        num_of_class = len(self.classes)
 
-        mini_batch_size = images.shape[0]
+        # obtained predictions with multiple value, the dim are arange as  num_of_images, num_of_model, num_of_different_try, num_of_class)
+        stochastic_predictions = self.obtained_stochastic_results_by_dropout(images, num_of_models, num_of_different_result)
 
-        num_of_class = 10
+        means = torch.mean(stochastic_predictions, dim=2)
+        
+        covs = torch.zeros(images.shape[0], num_of_models, num_of_class, num_of_class, device=self.device)
 
+        for i in range(images.shape[0]):
+            for j in range(num_of_models):
+                covs[i][j] = torch.cov(stochastic_predictions[i][j].T)
+
+        outputs = torch.zeros(images.shape[0], num_of_class, device=self.device)
+
+        for i in range(images.shape[0]):
+            mean = means[i][0]
+            cov = covs[i][0]
+
+            for j in range(1, num_of_models):
+                mean, cov = self.kalman_updates(mean, means[i][j], cov, covs[i][j])
+            
+            outputs[i] = mean
+
+        _, predicted = torch.max(outputs.data, 1)
+
+        return predicted
+
+    def obtained_stochastic_results_by_dropout(self, images, num_of_models, num_of_different_result):
         with torch.no_grad():
+            
+            predictions = torch.zeros(num_of_models, num_of_different_result, images.shape[0], len(self.classes), device=self.device)
 
-            predictions_from_different_models = []   
-
-            for i in range(self.num_of_models):
-                predictions = []
+            for i in range(num_of_models):
                 self.nets[i].eval()
 
-                predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
+                predictions[i,0] = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
                 
                 self.nets[i].train()
 
-                for _ in range(1, num_of_test_for_each_model):
-                    predictions.append(self.softmax(self.nets[i](self.transforms[i](deepcopy(images)))))
+                for j in range(1, num_of_different_result):
+                    predictions[i,j] = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
 
-                mini_batch_results = []
+            # swap dim from (num_of_model,num_of_different_try, num_of_image, num_of_class) to (num_of_images, num_of_model, num_of_different_try, num_of_class)
+            predictions = torch.transpose(torch.transpose(predictions, 0, 2), 1, 2)
 
-                for j in range(mini_batch_size):
-                    predictions_for_one_image = torch.zeros((num_of_test_for_each_model, num_of_class), device=self.device)
-                    
-                    for k in range(num_of_test_for_each_model):
-                        predictions_for_one_image[k] = predictions[k][j]
-
-                    mean = torch.mean(predictions_for_one_image, dim=0)
-                    cov = torch.cov(predictions_for_one_image.T)
-
-                    mini_batch_results.append({"mean":mean, "cov":cov, "all_results": predictions_for_one_image})
-
-                predictions_from_different_models.append(mini_batch_results)
-
-        fused_results = self.fuse_results_of_different_model(predictions_from_different_models)
-
-        best_predictions = torch.zeros(mini_batch_size, device=self.device, dtype=int)
-
-        for i in range(len(fused_results)):
-            best_predictions[i] = torch.argmax(fused_results[i]["mean"])
-
-        return best_predictions
+        return predictions
 
     def show_image(self, image):
         image = image.to('cpu')
@@ -502,26 +507,6 @@ class csNet(nn.Module):
             plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ) )
             plt.title("model [{}/{}]".format(i+1, self.num_of_models))
         plt.show()
-
-    def fuse_results_of_different_model(self, predictions_from_different_models):
-        """
-        params:
-            predictions_from_different_models: 
-                List of predictions from different models.
-                each elements in the list is also a list of mini_batch_results.
-        """
-        mini_batch_size = len(predictions_from_different_models[0])
-
-        fused_results = []
-
-        for j in range(mini_batch_size):
-            mean = predictions_from_different_models[0][j]["mean"]
-            cov = predictions_from_different_models[0][j]["cov"]
-            for i in range(1, self.num_of_models):
-                mean, cov = self.kalman_updates(mean, predictions_from_different_models[i][j]["mean"], cov, predictions_from_different_models[i][j]["cov"])
-            fused_results.append({"mean":mean, "cov":cov})
-        
-        return fused_results
 
     def kalman_updates(self, mean_1, mean_2, cov_1, cov_2):
         K_1 = cov_2 @ torch.linalg.pinv(cov_1 + cov_2)
