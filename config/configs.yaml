@@ -5,10 +5,17 @@ general:
 wandb:
   enable: True
   project_name: "csNet"
-  entity: "ese5460"
+  entity: "haoxiang_you"
+  name: null
+  config: null
 
 training:
-  batch_size: 16
+  dataset:
+    shuffle: True
+    apply_transformation: True
+    # the pecentatages of dataset being used
+    dataset_size: 1
+    batch_size: 16
   epochs: 50
   optimizor:
     lr: 0.01
@@ -20,12 +27,15 @@ training:
     # the learning rate will not decay after this times of epochs
     end_epoch: 50
 
-dataset:
-  shuffle: True
-  apply_transformation: True
-
-  # the pecentatages of dataset being used
-  dataset_size: 1
+testing:
+  dataset:
+    shuffle: True
+    apply_transformation: False
+    # the pecentatages of dataset being used
+    dataset_size: 1
+    batch_size: 16
+  ensemble:
+    method: "simple average"
 
 networks:
   # number of individual networks

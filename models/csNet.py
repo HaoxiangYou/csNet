@@ -168,8 +168,10 @@ class basic_transform(nn.Module):
 
 class csNet(nn.Module):
     
-    def __init__(self, networks_config, paths=None, optimizor_config=None, wandb_config=None, device=torch.device("cpu"), seed=0) -> None:
+    def __init__(self, networks_config, paths=None, wandb_config=None, device=torch.device("cpu"), seed=0, exp_name="csNet") -> None:
         super().__init__()
+
+        self.exp_name = exp_name
 
         self.classes = ('plane', 'car', 'bird', 'cat', 
             'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
@@ -186,33 +188,20 @@ class csNet(nn.Module):
         self.optimizers = []
         self.transforms_policy = []
         self.transforms = []
+        self.enable_wandb = False
 
         if wandb_config is not None and wandb_config["enable"]:
             wandb.init(
                 project=wandb_config["project_name"],
                 entity=wandb_config["entity"],
-                name=os.path.basename(paths["save_directory"])
+                name=wandb_config["name"]
             )
+            self.enable_wandb = True
 
         if paths is not None:
             self.save_dir = paths["save_directory"]
 
         self.initialize_models(networks_config=networks_config, paths=paths)
-
-        for i in range(self.num_of_models):
-            self.optimizers.append(optim.SGD(self.nets[i].parameters(), 
-                optimizor_config["lr"], momentum=optimizor_config["momentum"], 
-                weight_decay=optimizor_config["weight_decay"], nesterov=optimizor_config["nesterov"]))
-            self.lr_schedulers.append(optim.lr_scheduler.ExponentialLR(optimizer=self.optimizers[i], 
-                gamma=optimizor_config["lr_decay"]))
-            self.nets[i].to(self.device)
-
-        self.load_optimizers(paths)
-
-        self.lr_decay_end_epoch = optimizor_config["end_epoch"]
-
-        with open(os.path.join(self.save_dir, "tranforms.json"), "w") as f:
-            json.dump(self.transforms_policy, f, indent=4)
 
         print("Finish initilization, number of models: ", self.num_of_models)
 
@@ -321,7 +310,17 @@ class csNet(nn.Module):
         for transforms_policy in self.transforms_policy:
             self.transforms.append(basic_transform(policy=transforms_policy, device=self.device))
 
-    def load_optimizers(self, paths):
+        for net in self.nets:            
+            net.to(self.device)
+            
+    def initialize_optimizers(self, optimizer_config, paths=None):
+
+        for i in range(self.num_of_models):
+            self.optimizers.append(optim.SGD(self.nets[i].parameters(), 
+                optimizer_config["lr"], momentum=optimizer_config["momentum"], 
+                weight_decay=optimizer_config["weight_decay"], nesterov=optimizer_config["nesterov"]))
+            self.lr_schedulers.append(optim.lr_scheduler.ExponentialLR(optimizer=self.optimizers[i], 
+                gamma=optimizer_config["lr_decay"]))
         try:
             optimizers_info = torch.load(paths["optimizer_path"])
             optimizers = optimizers_info["optimizers"]
@@ -333,7 +332,14 @@ class csNet(nn.Module):
         except:
             pass
 
-    def train(self, train_loader, test_loader, epochs):
+        self.lr_decay_end_epoch = optimizer_config["end_epoch"]
+
+    def train(self, train_loader, test_loader, optimizer_config, epochs):
+
+        self.initialize_optimizers(optimizer_config)
+
+        with open(os.path.join(self.save_dir, "tranforms.json"), "w") as f:
+            json.dump(self.transforms_policy, f, indent=4)
 
         total_step = len(train_loader)
 
@@ -357,7 +363,8 @@ class csNet(nn.Module):
                     self.optimizers[j].step()
                     if (i+1) % (len(train_loader)//3) == 0:
                         print('Epoch [{}/{}], Step [{}/{}], Model [{}/{}], Loss: {:.4f}, Accuracy: {:.4f}%'.format(epoch+1, epochs, i+1, total_step, j+1, self.num_of_models, loss.item(), correct/total * 100))
-                        wandb.log({"model_"+str(j+1): {"training":{"epoch": epoch+1, "step":i+1 + epoch * len(train_loader), "loss":loss.item(),"accuracy": correct/total * 100}}})
+                        if self.enable_wandb:
+                            wandb.log({"model_"+str(j+1): {"training":{"epoch": epoch+1, "step":i+1 + epoch * len(train_loader), "loss":loss.item(),"accuracy": correct/total * 100}}})
 
             if epoch +1 <= self.lr_decay_end_epoch:
                 for j in range(self.num_of_models):
@@ -377,7 +384,8 @@ class csNet(nn.Module):
                             _, predicted = torch.max(outputs.data, 1)
                             correct += (predicted == labels).sum().item()
                     print("Epoch [{}/{}], Model [{}/{}], Test accuracy:{:4f}%".format(epoch+1, epochs, j+1, self.num_of_models, correct/total * 100))
-                    wandb.log({"model_"+str(j+1): {"testing":{"epoch": epoch+1, "accuracy": correct/total * 100}}})
+                    if self.enable_wandb:
+                        wandb.log({"model_"+str(j+1): {"testing":{"epoch": epoch+1, "accuracy": correct/total * 100}}})
 
                 self.save_model(dir="checkpoints", suffix="epoch{}".format(epoch+1), save_optimizer=True)
         
