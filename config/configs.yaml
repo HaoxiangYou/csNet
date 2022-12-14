@@ -3,9 +3,9 @@ general:
   device: "cuda"
 
 wandb:
-  enable: False
+  enable: True
   project_name: "csNet"
-  entity: "haoxiang_you"
+  entity: "ese5460"
   name: null
   config: null
 
@@ -35,9 +35,11 @@ testing:
     dataset_size: 1
     batch_size: 16
   ensemble:
+    # ensemble method to try
     # ensemble method including: "average", "Kalman filter", "weighted sum", "majority voting"
-    method: "average"
+    methods: ["average", "majority voting", "Kalman filter", "weighted sum"]
     number_of_models: 16
+    # for Kalman filter and weighted sum how many runs need for a single model to obtain uncertainty
     num_of_different_result: 16  
 
 networks:

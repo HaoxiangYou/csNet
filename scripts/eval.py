@@ -27,7 +27,9 @@ def main(config_path):
     apply_transformation = config["testing"]["dataset"]["apply_transformation"]
     dataset_size = config["testing"]["dataset"]["dataset_size"]
 
-    ensemble_method = config["testing"]["ensemble"]["method"]
+    ensemble_methods = config["testing"]["ensemble"]["methods"]
+    ensemble_num_of_models = config["testing"]["ensemble"]["number_of_models"]
+    ensemble_num_of_different_result = config["testing"]["ensemble"]["num_of_different_result"]
 
     networks_config = config["networks"]
 
@@ -76,7 +78,8 @@ def main(config_path):
 
     model.eval_each_model_accuracy(testloader)
 
-    model.eval(testloader, method=ensemble_method)
+    for ensemble_method in ensemble_methods:
+        model.eval(testloader, method=ensemble_method, num_of_models=ensemble_num_of_models, num_of_different_result=ensemble_num_of_different_result)
 
 if __name__ == "__main__":
     path_to_config_file = os.path.normpath(
