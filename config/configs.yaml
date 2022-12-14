@@ -29,7 +29,7 @@ training:
 
 testing:
   dataset:
-    shuffle: True
+    shuffle: False
     apply_transformation: False
     # the pecentatages of dataset being used
     dataset_size: 1
