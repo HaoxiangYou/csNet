@@ -3,7 +3,7 @@ general:
   device: "cuda"
 
 wandb:
-  enable: True
+  enable: False
   project_name: "csNet"
   entity: "haoxiang_you"
   name: null
@@ -35,7 +35,10 @@ testing:
     dataset_size: 1
     batch_size: 16
   ensemble:
+    # ensemble method including: "average", "Kalman filter", "weighted sum", "majority voting"
     method: "average"
+    number_of_models: 16
+    num_of_different_result: 16  
 
 networks:
   # number of individual networks

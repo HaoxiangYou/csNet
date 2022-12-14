@@ -427,6 +427,12 @@ class csNet(nn.Module):
                     predicted = self.predict_by_simple_average(images, num_of_models)
                 elif method == "Kalman filter":
                     predicted = self.predict_by_kalman_filter(images, num_of_models)
+                elif method == "weighted sum":
+                    predicted = self.predicted_by_weighted_sum(images, num_of_models)
+                elif method == "majority voting":
+                    predicted = self.predicted_by_majority_voting(images, num_of_models)
+                else:
+                    raise ValueError("Method should be in (average, Kalman filter, weighted sum, majority voting)")
 
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
@@ -451,6 +457,13 @@ class csNet(nn.Module):
         return predicted
 
     def predict_by_kalman_filter(self, images, num_of_models, num_of_different_result=16):
+
+        def kalman_updates(mean_1, mean_2, cov_1, cov_2):
+            K_1 = cov_2 @ torch.linalg.pinv(cov_1 + cov_2)
+            K_2 = torch.eye(K_1.shape[0], device=self.device) - K_1
+            mean = K_1 @ mean_1 +  K_2 @ mean_2
+            cov = K_1 @ cov_1 @ K_1.T + K_2 @ cov_2 @ K_2.T
+            return mean, cov  
         
         num_of_class = len(self.classes)
 
@@ -472,13 +485,54 @@ class csNet(nn.Module):
             cov = covs[i][0]
 
             for j in range(1, num_of_models):
-                mean, cov = self.kalman_updates(mean, means[i][j], cov, covs[i][j])
+                mean, cov = kalman_updates(mean, means[i][j], cov, covs[i][j])
             
             outputs[i] = mean
 
         _, predicted = torch.max(outputs.data, 1)
 
         return predicted
+
+    def predicted_by_weighted_sum(self, images, num_of_models, num_of_different_result=16):
+
+        num_of_class = len(self.classes)
+
+        # obtained predictions with multiple value, the dim are arange as  num_of_images, num_of_model, num_of_different_try, num_of_class)
+        stochastic_predictions = self.obtained_stochastic_results_by_dropout(images, num_of_models, num_of_different_result)
+
+        means = torch.mean(stochastic_predictions, dim=2)
+        
+        vars = torch.var(stochastic_predictions, dim=(2,3))
+
+        outputs = torch.zeros(images.shape[0], num_of_class, device=self.device)
+
+        for i in range(images.shape[0]):
+            mean = means[i][0]
+            var = vars[i][0]
+
+            for j in range(1, num_of_models):
+                k = vars[i][j] / (vars[i][j] + var)
+                mean = k * mean + (1-k) * means[i][j]
+                var = vars[i][j] * var / (vars[i][j] + var)
+            
+            outputs[i] = mean
+
+        _, predicted = torch.max(outputs.data, 1)
+
+        return predicted
+
+    def predicted_by_majority_voting(self, images, num_of_models):
+
+        voting_pools = torch.zeros(num_of_models, images.shape[0], device=self.device, dtype=int)
+
+        for i in range(num_of_models):
+            self.nets[i].eval()
+            outputs = self.softmax(self.nets[i](self.transforms[i](deepcopy(images))))
+            _, voting_pools[i] = torch.max(outputs.data, 1)     
+
+        prediction, _ = torch.mode(voting_pools, 0)
+
+        return prediction
 
     def obtained_stochastic_results_by_dropout(self, images, num_of_models, num_of_different_result):
         with torch.no_grad():
@@ -507,13 +561,6 @@ class csNet(nn.Module):
             plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ) )
             plt.title("model [{}/{}]".format(i+1, self.num_of_models))
         plt.show()
-
-    def kalman_updates(self, mean_1, mean_2, cov_1, cov_2):
-        K_1 = cov_2 @ torch.linalg.pinv(cov_1 + cov_2)
-        K_2 = torch.eye(K_1.shape[0], device=self.device) - K_1
-        mean = K_1 @ mean_1 +  K_2 @ mean_2
-        cov = K_1 @ cov_1 @ K_1.T + K_2 @ cov_2 @ K_2.T
-        return mean, cov  
                 
     def ransac(self):
         pass
