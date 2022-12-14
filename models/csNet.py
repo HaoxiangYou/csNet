@@ -411,7 +411,7 @@ class csNet(nn.Module):
                         wandb.log({"Testing":{"num of samples":total, "single_model_accuracy":{i:{"accuracy": correct/total}}}})
             print("Model:[{}/{}], Accuracy:{:.4f}%".format(i+1, self.num_of_models, correct/total * 100))
 
-    def eval(self, test_loader, method="average", num_of_models=None):
+    def eval(self, test_loader, method="average", num_of_models=None, num_of_different_result=16):
         if num_of_models is None:
             num_of_models = self.num_of_models
         
@@ -426,9 +426,9 @@ class csNet(nn.Module):
                 if method == "average":
                     predicted = self.predict_by_simple_average(images, num_of_models)
                 elif method == "Kalman filter":
-                    predicted = self.predict_by_kalman_filter(images, num_of_models)
+                    predicted = self.predict_by_kalman_filter(images, num_of_models, num_of_different_result)
                 elif method == "weighted sum":
-                    predicted = self.predicted_by_weighted_sum(images, num_of_models)
+                    predicted = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
                 elif method == "majority voting":
                     predicted = self.predicted_by_majority_voting(images, num_of_models)
                 else:
@@ -456,7 +456,7 @@ class csNet(nn.Module):
         
         return predicted
 
-    def predict_by_kalman_filter(self, images, num_of_models, num_of_different_result=16):
+    def predict_by_kalman_filter(self, images, num_of_models, num_of_different_result):
 
         def kalman_updates(mean_1, mean_2, cov_1, cov_2):
             K_1 = cov_2 @ torch.linalg.pinv(cov_1 + cov_2)
@@ -493,7 +493,7 @@ class csNet(nn.Module):
 
         return predicted
 
-    def predicted_by_weighted_sum(self, images, num_of_models, num_of_different_result=16):
+    def predicted_by_weighted_sum(self, images, num_of_models, num_of_different_result):
 
         num_of_class = len(self.classes)
 
