@@ -420,7 +420,7 @@ class csNet(nn.Module):
             noises = noises.mean(dim=0)
         elif adversarial_type == "weighted sum":
             _, weights = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
-            noises = torch.sum(noises * torch.transpose(weights, 0, 1)[:,:,None,None,None])
+            noises = torch.sum(noises * (torch.transpose(weights, 0, 1)[:,:,None,None,None]), dim=0)
         else:
             raise ValueError("Adversarially methed only support (single model, average, weighted_sum)")
 
