@@ -31,6 +31,10 @@ def main(config_path):
     ensemble_num_of_models = config["testing"]["ensemble"]["number_of_models"]
     ensemble_num_of_different_result = config["testing"]["ensemble"]["num_of_different_result"]
 
+    adversarially_attack_enable = config["testing"]["adversarially_attack"]["enable"]
+    adversarially_method = config["testing"]["adversarially_attack"]["adversarial_types"]
+    noise_mag = config["testing"]["adversarially_attack"]["noise_mag"]
+
     networks_config = config["networks"]
 
     wandb_config = config["wandb"]
@@ -78,8 +82,15 @@ def main(config_path):
 
     model.eval_each_model_accuracy(testloader)
 
-    for ensemble_method in ensemble_methods:
-        model.eval(testloader, method=ensemble_method, num_of_models=ensemble_num_of_models, num_of_different_result=ensemble_num_of_different_result)
+    if not adversarially_attack_enable:
+        for ensemble_method in ensemble_methods:
+            model.eval(testloader, method=ensemble_method, num_of_models=ensemble_num_of_models, 
+                    num_of_different_result=ensemble_num_of_different_result)
+    else:
+        for ensemble_method in ensemble_methods:
+            model.eval_model_with_adversarially_attack(testloader, method=ensemble_method, num_of_models=ensemble_num_of_models, 
+                                                        num_of_different_result=ensemble_num_of_different_result, 
+                                                        adversarial_type=adversarially_method, noise_mag=noise_mag)
 
 if __name__ == "__main__":
     path_to_config_file = os.path.normpath(

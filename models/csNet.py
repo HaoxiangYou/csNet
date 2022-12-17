@@ -160,11 +160,14 @@ class basic_transform(nn.Module):
         return policy
 
     def forward(self, imgs):
+        images = torch.clone(imgs)
         for i in range(imgs.shape[0]):
             for op_name, magnitude in self.policy:
-                imgs[i] = ToTensor()(_apply_op(ToPILImage()(imgs[i]), op_name, magnitude, InterpolationMode.NEAREST, None)).to(self.device)
-    
-        return imgs
+                try:
+                    images[i] = _apply_op(images[i], op_name, magnitude, InterpolationMode.NEAREST, None).to(self.device)
+                except:
+                    images[i] = ToTensor()(_apply_op(ToPILImage()(images[i]), op_name, magnitude, InterpolationMode.NEAREST, None)).to(self.device)
+        return images
 
 class csNet(nn.Module):
     
@@ -391,6 +394,72 @@ class csNet(nn.Module):
         
         self.save_model(save_optimizer=True)
 
+    def adversarially_attack(self, images, labels, adversarial_type="single model", noise_mag=0.01, num_of_models=None, num_of_different_result=16):
+        
+        if num_of_models is None:
+            num_of_models = self.num_of_models
+
+        noises = torch.zeros((num_of_models,)+images.size(),device=self.device)
+
+        for i in range(num_of_models):
+            try:
+                self.nets[i].eval()
+                images_copy = deepcopy(images)
+                images_copy.requires_grad = True
+                outputs = self.nets[i](self.transforms[i](images_copy))
+                loss= self.criterion(outputs, labels)
+                self.nets[i].zero_grad()
+                loss.backward()
+                noises[i] = images_copy.grad.data.clone()
+            except:
+                pass
+
+        if adversarial_type == "single model":
+            noises = noises[0]
+        elif adversarial_type == "average":
+            noises = noises.mean(dim=0)
+        elif adversarial_type == "weighted sum":
+            _, weights = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
+            noises = torch.sum(noises * torch.transpose(weights, 0, 1)[:,:,None,None,None])
+        else:
+            raise ValueError("Adversarially methed only support (single model, average, weighted_sum)")
+
+        noises = noise_mag * torch.sign(noises)
+
+        return noises
+
+    def eval_model_with_adversarially_attack(self, test_loader, method="single model", adversarial_type="weighted sum", num_of_models=None, num_of_different_result=16, noise_mag=0.01):
+        if num_of_models is None:
+            num_of_models = self.num_of_models
+        
+        correct = 0
+        total = 0
+        num_of_samples = len(test_loader)
+
+        for j, (images, labels) in enumerate(test_loader):
+            images = images.to(self.device)
+            labels = labels.to(self.device)
+
+            noises = self.adversarially_attack(images, labels, adversarial_type=adversarial_type, noise_mag=noise_mag)
+            images += noises
+
+            if method == "single model":
+                outputs = self.nets[0](self.transforms[0](images))
+                _, predicted = torch.max(outputs.data, 1)
+            elif method == "average":
+                predicted = self.predict_by_simple_average(images, num_of_models)
+            elif method == "weighted sum":
+                predicted, _ = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
+            else:
+                raise ValueError("Only support (single model, average, weighted_sum) for adverarially attack evaluation")
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+            print("Samples:[{}/{}], Accuracy:{:.4f}%".format(j+1, num_of_samples, correct/total * 100))
+                
+            if self.enable_wandb:
+                wandb.log({"Testing":{"num of samples":total, "adversarially attack " + method :{"accuracy": correct/total}}})
+        
     def eval_each_model_accuracy(self, test_loader):
         for i in range(self.num_of_models):
             self.nets[i].eval()
@@ -428,7 +497,7 @@ class csNet(nn.Module):
                 elif method == "Kalman filter":
                     predicted = self.predict_by_kalman_filter(images, num_of_models, num_of_different_result)
                 elif method == "weighted sum":
-                    predicted = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
+                    predicted, _ = self.predicted_by_weighted_sum(images, num_of_models, num_of_different_result)
                 elif method == "majority voting":
                     predicted = self.predicted_by_majority_voting(images, num_of_models)
                 else:
@@ -506,20 +575,28 @@ class csNet(nn.Module):
 
         outputs = torch.zeros(images.shape[0], num_of_class, device=self.device)
 
+        weights = torch.zeros(images.shape[0], num_of_models, device=self.device)
+
         for i in range(images.shape[0]):
             mean = means[i][0]
             var = vars[i][0]
+
+            weights[i][0] = 1
 
             for j in range(1, num_of_models):
                 k = vars[i][j] / (vars[i][j] + var)
                 mean = k * mean + (1-k) * means[i][j]
                 var = vars[i][j] * var / (vars[i][j] + var)
             
+                for index in range(j):
+                    weights[i][index] *= k
+                weights[i][j] = 1-k
+
             outputs[i] = mean
 
         _, predicted = torch.max(outputs.data, 1)
 
-        return predicted
+        return predicted, weights
 
     def predicted_by_majority_voting(self, images, num_of_models):
 
@@ -555,10 +632,9 @@ class csNet(nn.Module):
         return predictions
 
     def show_image(self, image):
-        image = image.to('cpu')
         for i in range(self.num_of_models):
             plt.figure()
-            plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ) )
+            plt.imshow(torch.moveaxis(self.transforms[i](deepcopy(image[None,:,:,:])).squeeze(), 0, -1 ).cpu())
             plt.title("model [{}/{}]".format(i+1, self.num_of_models))
         plt.show()
                 

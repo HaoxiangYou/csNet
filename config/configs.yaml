@@ -40,7 +40,12 @@ testing:
     methods: ["average", "majority voting", "Kalman filter", "weighted sum"]
     number_of_models: 16
     # for Kalman filter and weighted sum how many runs need for a single model to obtain uncertainty
-    num_of_different_result: 16  
+    num_of_different_result: 16
+  adversarially_attack:
+    enable: False
+    # ensemble method including: "single model", "average", "weighted sum"
+    adversarial_types: "single model" 
+    noise_mag: 0.01
 
 networks:
   # number of individual networks
